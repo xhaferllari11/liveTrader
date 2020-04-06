@@ -1,48 +1,95 @@
 import ccxt
 
-
-
-print(ccxt.exchanges)
-
-
 class Arbitrager:
     def __init__(self):
         self.exchanges = [
             ccxt.binanceus(),
             ccxt.bittrex(),
             # ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing
-            ccxt.gemini(),
-            ccxt.kraken(),
-            ccxt.livecoin(),
-            ccxt.theocean()
+            # ccxt.gemini(),
+            # ccxt.kraken(),
+            # ccxt.livecoin(),
+            # ccxt.theocean()
         ]
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
-        common_tickers = self.getCommonTickers()
+        self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
-        self.startArbitrage()
-    
+        self.minProfit = 2  #percent profit
+        self.minVolume = 200 #in USD
+        self.txfrCosts = []
+
     def loadMarkets(self):
         for e in self.exchanges:
-            mkt = e.load_markets()
+            e.load_markets()
 
     def getCommonTickers(self):
         tickers = {}
+        counter = 0
         for e in self.exchanges:
             for symbol in list(e.markets.keys()):
+                if (counter >2):
+                    break
                 if symbol in tickers:
-                    tickers[symbol].append(e.id)
+                    counter +=1
+                    tickers[symbol].append(e)
                 else:
-                    tickers[symbol] = [e.id]
+                    tickers[symbol] = [e]
 
-        ret_tickers = {}
+        retTickers = {}
         for key,val in tickers.items():
             if (len(val) > 1):
-                ret_tickers[key] = val
-        return ret_tickers
+                retTickers[key] = val
+        return retTickers
+
 
     def startArbitrage(self):
         print('---------------------------------------')
-        pass
+        self.currentBooks = self.getAllpairPrices()
+        print(self.currentBooks)
+        #calculate arb percent gain
+        self.opportunities = self.findOpportunities()
+        print(self.opportunities)
+
+    def getAllpairPrices(self):
+        prices = {}
+        for tick, exchs in self.commonTickers.items():
+            prices[tick] = {}
+            for e in exchs:
+                try:
+                    prices[tick][e] = e.fetchL2OrderBook(tick)
+                except:
+                    pass
+        return prices
+
+    def findOpportunities(self):
+        opps = []         # this is a list of objs. each list is {highBid: {exch_name, buy_price, buy_amt}, lowAsk:  {exch_name, sell_price, sell_amt}, max_profit: number}
+        for tick in self.currentBooks.items():
+            highesBid = {"exchName": None, "buyPrice": 0, "buyAmt": 0}
+            lowestAsk = {"exchName": None, "sellPrice": 9999999999, "sellAmt":0 }
+            for e in self.currentBooks[tick].items():
+                # looking at second best bid and second best ask and put highest buy and lowest sell exchanges in the 2 variable defined
+                eBid = self.currentBooks[tick][e]['bids'][1][0]     
+                eAsk = self.currentBooks[tick][e]['asks'][1][0]     #NOTE: these disregard volume best volume and ask/bid price
+                if (eBid > highesBid['buyPrice']):
+                    highesBid = {
+                        "exchName": e, "buyPrice": eBid,
+                        "buyAmt": self.currentBooks[tick][e]['bids'][1][1]
+                    }
+                if (eAsk < lowestAsk['sellPrice']):
+                    lowestAsk = {
+                        "exchName": e, "sellPrice": eAsk,
+                        "sellAmt": self.currentBooks[tick][e]['asks'][1][1]
+                    }
+            
+            # check if profit above threshhold
+            diffPercentage = (highesBid['buyPrice'] - lowestAsk['sellPrice'])/highesBid['buyPrice']*100 
+            if (diffPercentage > self.minProfit):
+                opps.append({
+                    'highBid': highesBid,
+                    'lowAsk': lowestAsk,
+                    'maxProfit': diffPercentage
+                })
+        return opps
 
 
 arbitObj = Arbitrager()
@@ -74,3 +121,86 @@ arbitObj.startArbitrage()
 # • fetchTicker (symbol): Fetch latest ticker data by trading symbol.
 
 # NOTE: use fetch_tickers() to get all ticker data. Some currencies, like Gemini Don't allow it
+
+
+
+
+# prices format
+# {
+#   'ADA/USD': {
+#     ccxt.binanceus(): {
+#       'bids': [
+#         [0.0351, 30469.9],
+#         [0.035, 92924.9],
+#         [0.0349, 31921.3],
+#         [0.0348, 40142.7],
+#       ],
+#       'asks': [
+#         [0.0352, 20522.7],
+#         [0.0353, 483960.4],
+#         [0.0354, 17653.0],
+#         [0.0355, 20784.4],
+#       ],
+#       'timestamp': None,
+#       'datetime': None,
+#       'nonce': 20533044
+#     },
+#     ccxt.bittrex(): {
+#       'bids': [
+#         [0.0351, 31753.01909686],
+#         [0.03501, 819.230988],
+#         [0.035, 18538.48686046],
+#         [0.03485, 1662.91923571],
+#         [0.0181, 18853.59116022]
+#       ],
+#       'asks': [
+#         [0.0352, 31795.302],
+#         [0.03534, 291.556],
+#         [0.03548, 28421.0],
+#         [0.0355, 3457.08376422],
+#         [0.03551, 175241.0],
+#       ],
+#       'timestamp': None,
+#       'datetime': None,
+#       'nonce': None
+#     }
+#   },
+#   'ADA/USDT': {
+#     ccxt.binanceus(): {
+#       'bids': [
+#         [0.03505, 10666.2],
+#         [0.03504, 8561.6],
+#         [0.03503, 3688.2],
+#       ],
+#       'asks': [
+#         [0.03513, 8539.7],
+#         [0.03514, 20113.1],
+#         [0.03515, 110480.3],
+#         [0.03686, 29934.4]
+#       ],
+#       'timestamp': None,
+#       'datetime': None,
+#       'nonce': 20234290
+#     },
+#     ccxt.bittrex(): {
+#       'bids': [
+#         [0.03504917, 13880.03],
+#         [0.03503272, 53435.20844155],
+#         [0.03483659, 21925.0],
+#         [0.03483658, 21324.19255234],
+#       ],
+#       'asks': [
+#         [0.03525624, 50000.0],
+#         [0.03525625, 13889.801],
+#         [0.03525626, 16856.0],
+#         [0.03525627, 4633.6864924],
+#       ],
+#       'timestamp': None,
+#       'datetime': None,
+#       'nonce': None
+#     }
+#   }
+# }
+
+
+
