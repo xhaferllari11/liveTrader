@@ -5,30 +5,39 @@ class Arbitrager:
         self.exchanges = {
             'binanceus': ccxt.binanceus(),
             'bittrex': ccxt.bittrex(),
-            # 'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing
-            # 'gemini': ccxt.gemini(),
-            # 'kraken': ccxt.kraken(),
-            # 'livecoin': ccxt.livecoin(),
-            # 'theocean': ccxt.theocean()
+            'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing. Also coinbase limits API to 3-6 calls/sec
+            'gemini': ccxt.gemini(),
+            'kraken': ccxt.kraken(),
+            'livecoin': ccxt.livecoin(),
+            'theocean': ccxt.theocean()
         }
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
+        self.unavailableTickers = {
+            'LUNA/BTC': ['bittrex'],
+            'ABBC/BTC': ['bittrex']
+            }
         self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
-        self.minProfit = -10  #percent profit
-        self.minVolume = 200 #in USD
+        self.minProfit = 0  #percent profit
+        self.minVolume = 200 # in USD NOTE: still need to incorporate this. I think coinmarketcap API has a quick conversion call
         self.txfrCosts = []
 
+
     def loadMarkets(self):
+        print('___________Loading Markets______________')
         for key, e in self.exchanges.items():
+            print(key)
             e.load_markets()
 
     def getCommonTickers(self):
+        print('-----------getting common tickers---------------')
         tickers = {}
         counter = 0     #only used in development 
         for key, e in self.exchanges.items():
+            print(key)
             for symbol in list(e.markets.keys()):
-                if (counter >2):      #only used in development
-                    break
+                # if (counter >80):      #only used in development
+                #     break
                 if symbol in tickers:
                     counter +=1
                     tickers[symbol].append(key)
@@ -44,58 +53,82 @@ class Arbitrager:
 
 
     def startArbitrage(self):
-        print('---------------------------------------')
+        print('--------------Starting Arbitrage-------------------------')
         self.currentBooks = self.getAllpairPrices()
         #calculate arb percent gain
-        self.opportunities = self.findOpportunities()
-        print(self.opportunities)
+        self.ArbOpps2Way = self.findOpportunities()
+        print(self.ArbOpps2Way)
+        self.ArbOpps2Way.sort(reverse=True, key=lambda el: el['maxProfit'])
+        print(self.ArbOpps2Way)
+        print('_______________')
+        try:
+            print(self.currentBooks[self.ArbOpps2Way[0]['ticker']])
+        except:
+            print('did not find any opportunities')
+        # after getting all the data, need to re-call APIs to get order book for top arb contenders
+        # so we have most updated orders, calling all the available pairs took 3 minutes, coinbase throttled back also
+
+
 
     def getAllpairPrices(self):
+        print('----------get all prices--------------')
         prices = {}
         for tick, exchs in self.commonTickers.items():
+            print(f'-------{tick}---{exchs}----')
             prices[tick] = {}
             for e in exchs:
                 try:
                     prices[tick][e] = self.exchanges[e].fetchL2OrderBook(tick)
                 except:
-                    pass
+                    print(f'Could not get orderbook for {tick} from {e}')
         return prices
 
     def findOpportunities(self):
+        print('----------------finding opps--------------')
         opps = []         # this is a list of objs. each list is {highBid: {exch_name, buy_price, buy_amt}, lowAsk:  {exch_name, sell_price, sell_amt}, max_profit: number}
         for tick in self.currentBooks:
             highesBid = {"exchName": None, "buyPrice": 0, "buyAmt": 0}
             lowestAsk = {"exchName": None, "sellPrice": 9999999999, "sellAmt":0 }
-            for e in self.currentBooks[tick]:
-                # looking at second best bid and second best ask and put highest buy and lowest sell exchanges in the 2 variable defined
-                eBid = self.currentBooks[tick][e]['bids'][1][0]     
-                eAsk = self.currentBooks[tick][e]['asks'][1][0]     #NOTE: these disregard volume best volume and ask/bid price
-                if (eBid > highesBid['buyPrice']):
-                    highesBid = {
-                        "exchName": e, "buyPrice": eBid,
-                        "buyAmt": self.currentBooks[tick][e]['bids'][1][1]
-                    }
-                if (eAsk < lowestAsk['sellPrice']):
-                    lowestAsk = {
-                        "exchName": e, "sellPrice": eAsk,
-                        "sellAmt": self.currentBooks[tick][e]['asks'][1][1]
-                    }
-            #NOTE: need to add logic in case could not get orderbook for more than 1 exchange
 
-            # check if profit above threshhold
-            diffPercentage = (highesBid['buyPrice'] - lowestAsk['sellPrice'])/highesBid['buyPrice']*100 
-            if (diffPercentage > self.minProfit):
-                opps.append({
-                    'ticker': tick,
-                    'highBid': highesBid,
-                    'lowAsk': lowestAsk,
-                    'maxProfit': diffPercentage
-                })
+            for e in self.currentBooks[tick]:
+                # make sure there is more than 2 open orders
+                if (len(self.currentBooks[tick][e]['bids']) > 2 and len(self.currentBooks[tick][e]['asks']) > 2):
+                    # looking at second best bid and second best ask and put highest buy and lowest sell exchanges in the 2 variable defined
+                    eBid = self.currentBooks[tick][e]['bids'][1][0]     
+                    eAsk = self.currentBooks[tick][e]['asks'][1][0]     #NOTE: these disregard volume best volume and ask/bid price
+                    if (eBid > highesBid['buyPrice']):
+                        highesBid = {
+                            "exchName": e, "buyPrice": eBid,
+                            "buyAmt": self.currentBooks[tick][e]['bids'][1][1]
+                        }
+                    if (eAsk < lowestAsk['sellPrice']):
+                        lowestAsk = {
+                            "exchName": e, "sellPrice": eAsk,
+                            "sellAmt": self.currentBooks[tick][e]['asks'][1][1]
+                        }
+
+            #in case could not get orderbook for more than 1 exchange, or bid/asd didn't update
+            if ((lowestAsk['sellPrice'] != 9999999999) and (highesBid['buyPrice'] != 0)): 
+                # check if profit above threshhold
+                diffPercentage = (highesBid['buyPrice'] - lowestAsk['sellPrice'])/highesBid['buyPrice']*100 
+                if (diffPercentage > self.minProfit):
+                    opps.append({
+                        'ticker': tick,
+                        'highBid': highesBid,
+                        'lowAsk': lowestAsk,
+                        'maxProfit': diffPercentage
+                    })
         return opps
+
 
 
 arbitObj = Arbitrager()
 arbitObj.startArbitrage()
+
+
+#Previous Opps:
+# BTM/BTC bittrex to livecoin
+# NANO/BTC and NANO/ETH kraken to livecoin
 
 
 # • fetchMarkets (): Fetches a list of all available markets from an exchange and returns an array of markets
