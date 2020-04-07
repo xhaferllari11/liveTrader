@@ -2,39 +2,40 @@ import ccxt
 
 class Arbitrager:
     def __init__(self):
-        self.exchanges = [
-            ccxt.binanceus(),
-            ccxt.bittrex(),
-            # ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing
-            # ccxt.gemini(),
-            # ccxt.kraken(),
-            # ccxt.livecoin(),
-            # ccxt.theocean()
-        ]
+        self.exchanges = {
+            'binanceus': ccxt.binanceus(),
+            'bittrex': ccxt.bittrex(),
+            # 'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing
+            # 'gemini': ccxt.gemini(),
+            # 'kraken': ccxt.kraken(),
+            # 'livecoin': ccxt.livecoin(),
+            # 'theocean': ccxt.theocean()
+        }
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
         self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
-        self.minProfit = 2  #percent profit
+        self.minProfit = -10  #percent profit
         self.minVolume = 200 #in USD
         self.txfrCosts = []
 
     def loadMarkets(self):
-        for e in self.exchanges:
+        for key, e in self.exchanges.items():
             e.load_markets()
 
     def getCommonTickers(self):
         tickers = {}
-        counter = 0
-        for e in self.exchanges:
+        counter = 0     #only used in development 
+        for key, e in self.exchanges.items():
             for symbol in list(e.markets.keys()):
-                if (counter >2):
+                if (counter >2):      #only used in development
                     break
                 if symbol in tickers:
                     counter +=1
-                    tickers[symbol].append(e)
+                    tickers[symbol].append(key)
                 else:
-                    tickers[symbol] = [e]
+                    tickers[symbol] = [key]
 
+        #keep the tickers that show up in more than 1 exchange
         retTickers = {}
         for key,val in tickers.items():
             if (len(val) > 1):
@@ -45,7 +46,6 @@ class Arbitrager:
     def startArbitrage(self):
         print('---------------------------------------')
         self.currentBooks = self.getAllpairPrices()
-        print(self.currentBooks)
         #calculate arb percent gain
         self.opportunities = self.findOpportunities()
         print(self.opportunities)
@@ -56,17 +56,17 @@ class Arbitrager:
             prices[tick] = {}
             for e in exchs:
                 try:
-                    prices[tick][e] = e.fetchL2OrderBook(tick)
+                    prices[tick][e] = self.exchanges[e].fetchL2OrderBook(tick)
                 except:
                     pass
         return prices
 
     def findOpportunities(self):
         opps = []         # this is a list of objs. each list is {highBid: {exch_name, buy_price, buy_amt}, lowAsk:  {exch_name, sell_price, sell_amt}, max_profit: number}
-        for tick in self.currentBooks.items():
+        for tick in self.currentBooks:
             highesBid = {"exchName": None, "buyPrice": 0, "buyAmt": 0}
             lowestAsk = {"exchName": None, "sellPrice": 9999999999, "sellAmt":0 }
-            for e in self.currentBooks[tick].items():
+            for e in self.currentBooks[tick]:
                 # looking at second best bid and second best ask and put highest buy and lowest sell exchanges in the 2 variable defined
                 eBid = self.currentBooks[tick][e]['bids'][1][0]     
                 eAsk = self.currentBooks[tick][e]['asks'][1][0]     #NOTE: these disregard volume best volume and ask/bid price
@@ -80,11 +80,13 @@ class Arbitrager:
                         "exchName": e, "sellPrice": eAsk,
                         "sellAmt": self.currentBooks[tick][e]['asks'][1][1]
                     }
-            
+            #NOTE: need to add logic in case could not get orderbook for more than 1 exchange
+
             # check if profit above threshhold
             diffPercentage = (highesBid['buyPrice'] - lowestAsk['sellPrice'])/highesBid['buyPrice']*100 
             if (diffPercentage > self.minProfit):
                 opps.append({
+                    'ticker': tick,
                     'highBid': highesBid,
                     'lowAsk': lowestAsk,
                     'maxProfit': diffPercentage
