@@ -9,16 +9,26 @@ class Arbitrager:
             'gemini': ccxt.gemini(),
             'kraken': ccxt.kraken(),
             'livecoin': ccxt.livecoin(),
-            'theocean': ccxt.theocean()
+            'theocean': ccxt.theocean(),
+            'okex': ccxt.okex(),
+            'bitmart': ccxt.bitmart()
         }
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
+        # these are tickers available on exchnage, but not US customers, or don't allow deposits/withdrawals
         self.unavailableTickers = {
-            'LUNA/BTC': ['bittrex'],
-            'ABBC/BTC': ['bittrex']
+            'binanceus': [],
+            'bittrex': ['LUNA/BTC', 'ABBC/BTC','Capricoin/BTC','DRGN/BTC','CVT/BTC','NXT/BTC'],
+            'coinbase': [],
+            'gemini': [],
+            'kraken': [],
+            'livecoin': ['BTM/BTC', 'BTM/ETH', 'NANO/BTC','NANO/ETH', 'XTZ/BTC', 'XTZ/ETH','THETA/BTC','THETA/ETH','ABBC/BTC','ABBC/ETH','AE/BTC','AE/ETH'],
+            'theocean': [],
+            'okex': ['AET/ETH','AET/BTC'],             # does not allow US, but allows canadian
+            'bitmart': []
             }
         self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
-        self.minProfit = 0  #percent profit
+        self.minProfit = 1  # percent profit
         self.minVolume = 200 # in USD NOTE: still need to incorporate this. I think coinmarketcap API has a quick conversion call
         self.txfrCosts = []
 
@@ -38,11 +48,12 @@ class Arbitrager:
             for symbol in list(e.markets.keys()):
                 # if (counter >80):      #only used in development
                 #     break
-                if symbol in tickers:
-                    counter +=1
-                    tickers[symbol].append(key)
-                else:
-                    tickers[symbol] = [key]
+                if (symbol not in self.unavailableTickers[key]):
+                    if symbol in tickers:
+                        counter +=1
+                        tickers[symbol].append(key)
+                    else:
+                        tickers[symbol] = [key]
 
         #keep the tickers that show up in more than 1 exchange
         retTickers = {}
