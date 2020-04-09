@@ -1,4 +1,5 @@
 import ccxt
+import config
 
 class Arbitrager:
     def __init__(self):
@@ -11,7 +12,9 @@ class Arbitrager:
             'livecoin': ccxt.livecoin(),
             'theocean': ccxt.theocean(),
             'okex': ccxt.okex(),
-            'bitmart': ccxt.bitmart()
+            'bitmart': ccxt.bitmart(),
+            'cex': ccxt.cex(),              #EU
+            'bitbay': ccxt.bitbay(),        #EU
         }
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
         # these are tickers available on exchnage, but not US customers, or don't allow deposits/withdrawals
@@ -24,7 +27,9 @@ class Arbitrager:
             'livecoin': ['BTM/BTC', 'BTM/ETH', 'NANO/BTC','NANO/ETH', 'XTZ/BTC', 'XTZ/ETH','THETA/BTC','THETA/ETH','ABBC/BTC','ABBC/ETH','AE/BTC','AE/ETH'],
             'theocean': [],
             'okex': ['AET/ETH','AET/BTC'],             # does not allow US, but allows canadian
-            'bitmart': []
+            'bitmart': [],
+            'cex': [],
+            'bitbay': []
             }
         self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
@@ -80,7 +85,6 @@ class Arbitrager:
         # so we have most updated orders, calling all the available pairs took 3 minutes, coinbase throttled back also
 
 
-
     def getAllpairPrices(self):
         print('----------get all prices--------------')
         prices = {}
@@ -131,10 +135,75 @@ class Arbitrager:
                     })
         return opps
 
+    def verifyOrderBook(self, ticker, exchHighBid, exchLowAsk):
+        try:
+            bidOrderBook = self.exchanges[exchHighBid].fetchL2OrderBook(ticker)
+            askOrderBook = self.exchanges[exchLowAsk].fetchL2OrderBook(ticker)
+        except:
+            print('could not verify order book to trade on')
+            return False
 
+    def getTradingAndTransactionCosts(self, ticker, exch1, exch2):
+        pass
+
+    def placeOrder(self, ticker, exch, amt):
+        # place order
+        pass
+    
+    def verifyBalance(self, ticker, exch):
+        try:
+            balance = self.exchanges[exch].fetch_balance()
+            coin = ticker.split('/')[1]
+            return balance['free'][coin]
+        except:
+            print('----- could not verify balance in {exch}')
+
+    def tradeOnOpps(self, opp = None):
+        if (opp == None):
+            if (len(self.ArbOpps2Way) > 0):
+                opp = self.ArbOpps2Way[0]
+        if (opp == None):
+            print('pass in a ticker and exchanges to trade in dict format')
+            return
+        # need to verify bc running arbitrage for all tickers takes 1-2 mins, order books changes
+        bidExch = opp['highBid']['exchName']
+        askExch = opp['lowAsk']['exchName']
+        if (self.verifyOrderBook(opp['ticker'], bidExch, askExch) != False):
+        # calc tx/trading costs
+            txCosts = self.getTradingAndTransactionCosts(
+                opp['ticker'], bidExch, askExch)  #default this to .001 BTC
+            if (txCosts < 0):
+                print(f"------could not get tx costs for {opp['ticker']}")
+                return
+            # calc max profit based on costs
+            maxProfitTradeAmt = 1000
+            maxProfitAskPrice = .00002
+
+            # sign into accounts
+            self.exchanges[askExch].apiKey = config[askExch]['API_KEY']
+            self.exchanges[askExch].secret = config[askExch]['API_SECRET']
+            self.exchanges[bidExch].apiKey = config[bidExch]['API_KEY']
+            self.exchanges[bidExch].secret = config[bidExch]['API_SECRET']
+
+            # verify funds in account
+            funds = self.verifyBalance(opp['ticker'],askExch)
+            if (funds > maxProfitTradeAmt/maxProfitAskPrice):  
+                self.placeOrder(opp['ticker'],askExch,maxProfitTradeAmt)
+                #verify trade executed
+                #transfer funds
+                #sell on high bid exch
+            
+        else:
+            print('-----missed opportunity--------')
+            # maybe ask user to try again or try next opportunity
+            return
+        
 
 arbitObj = Arbitrager()
 arbitObj.startArbitrage()
+# arbitObj.tradeOnOpps()
+
+
 
 
 #Previous Opps:
