@@ -1,35 +1,50 @@
 import ccxt
 import config
 
+
+# NOTE: dynamically calculate max profit function
+
 class Arbitrager:
     def __init__(self):
         self.exchanges = {
             'binanceus': ccxt.binanceus(),
             'bittrex': ccxt.bittrex(),
-            'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing. Also coinbase limits API to 3-6 calls/sec
+            # 'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing. Also coinbase limits API to 3-6 calls/sec
             'gemini': ccxt.gemini(),
             'kraken': ccxt.kraken(),
             'livecoin': ccxt.livecoin(),
             'theocean': ccxt.theocean(),
-            'okex': ccxt.okex(),
+            # 'okex': ccxt.okex(),            #Canadian, does not allow us
             'bitmart': ccxt.bitmart(),
             'cex': ccxt.cex(),              #EU
             'bitbay': ccxt.bitbay(),        #EU
+            # 'bcex': ccxt.bcex(),            #candian exch, their API is updating
+            'bitbay': ccxt.bitbay(),
+            'paymium': ccxt.paymium(),
+            'binance': ccxt.binance(),
+            'okcoin': ccxt.okcoin(),
+            'bitfinex': ccxt.bitfinex()      # non-US
         }
         self.loadMarkets() #creates a markets variable in each exchange instance.  ex. exchages[0].markets will return markets
         # these are tickers available on exchnage, but not US customers, or don't allow deposits/withdrawals
         self.unavailableTickers = {
             'binanceus': [],
             'bittrex': ['LUNA/BTC', 'ABBC/BTC','Capricoin/BTC','DRGN/BTC','CVT/BTC','NXT/BTC'],
-            'coinbase': [],
+            # 'coinbase': [],
             'gemini': [],
             'kraken': [],
-            'livecoin': ['BTM/BTC', 'BTM/ETH', 'NANO/BTC','NANO/ETH', 'XTZ/BTC', 'XTZ/ETH','THETA/BTC','THETA/ETH','ABBC/BTC','ABBC/ETH','AE/BTC','AE/ETH'],
+            'livecoin': ['BTM/BTC', 'BTM/ETH', 'NANO/BTC','NANO/ETH', 'XTZ/BTC', 'XTZ/ETH','THETA/BTC','THETA/ETH','ABBC/BTC','ABBC/ETH','AE/BTC','AE/ETH','IOST/BTC','IOST/ETH'],
             'theocean': [],
-            'okex': ['AET/ETH','AET/BTC'],             # does not allow US, but allows canadian
+            # 'okex': ['AET/ETH','AET/BTC'],             # does not allow US, but allows canadian
             'bitmart': [],
             'cex': [],
-            'bitbay': []
+            'bitbay': [],
+            # 'bcex': [],             #candian exch, their API is updating
+            'bitbay': [],
+            'paymium': [],
+            'binance': [],
+            'okcoin': [],
+            'bitfinex': []
             }
         self.commonTickers = self.getCommonTickers()
         # then only call fetch_tickers for common_tickers between exchanges
@@ -42,7 +57,10 @@ class Arbitrager:
         print('___________Loading Markets______________')
         for key, e in self.exchanges.items():
             print(key)
-            e.load_markets()
+            try:
+                e.load_markets()
+            except:
+                print(f'ccxt does not support {e} or {e} has updated their API')
 
     def getCommonTickers(self):
         print('-----------getting common tickers---------------')
