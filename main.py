@@ -12,15 +12,15 @@ class Arbitrager:
             'bittrex': ccxt.bittrex(),
             # 'coinbase': ccxt.coinbase(),   # coinbase has most currency pairs, by like 3 times the next highest, consider removing. Also coinbase limits API to 3-6 calls/sec
             'gemini': ccxt.gemini(),
-            'kraken': ccxt.kraken(),
+            # 'kraken': ccxt.kraken(),       # updating their API
             'livecoin': ccxt.livecoin(),
             'theocean': ccxt.theocean(),
             # 'okex': ccxt.okex(),            #Canadian, does not allow us
             'bitmart': ccxt.bitmart(),
-            'cex': ccxt.cex(),  # EU
+            # 'cex': ccxt.cex(),  # EU
             # 'bitbay': ccxt.bitbay(),  # EU, Updating API
             # 'bcex': ccxt.bcex(),            #candian exch, their API is updating
-            'bitbay': ccxt.bitbay(),
+            # 'bitbay': ccxt.bitbay(),
             'paymium': ccxt.paymium(),
             'binance': ccxt.binance(),
             'okcoin': ccxt.okcoin(),
@@ -34,12 +34,12 @@ class Arbitrager:
             'bittrex': ['LUNA/BTC', 'ABBC/BTC', 'Capricoin/BTC', 'DRGN/BTC', 'CVT/BTC', 'NXT/BTC'],
             # 'coinbase': [],
             'gemini': [],
-            'kraken': [],
+            # 'kraken': [],               # Updating their API
             'livecoin': ['BTM/BTC', 'BTM/ETH', 'NANO/BTC', 'NANO/ETH', 'XTZ/BTC', 'XTZ/ETH', 'THETA/BTC', 'THETA/ETH', 'ABBC/BTC', 'ABBC/ETH', 'AE/BTC', 'AE/ETH', 'IOST/BTC', 'IOST/ETH'],
             'theocean': [],
             # 'okex': ['AET/ETH','AET/BTC'],             # does not allow US, but allows canadian
             'bitmart': [],
-            'cex': [],
+            # 'cex': [],
             # 'bitbay': [],
             # 'bcex': [],             #candian exch, their API is updating
             'bitbay': [],
@@ -63,7 +63,7 @@ class Arbitrager:
                 e.load_markets()
             except:
                 print(
-                    f'ccxt does not support {e} or {e} has updated their API')
+                    f'Error: either reached API limits, ccxt not synced with {e}, or {e} updated their API')
 
     def getCommonTickers(self):
         print('-----------getting common tickers---------------')
@@ -72,8 +72,8 @@ class Arbitrager:
         for key, e in self.exchanges.items():
             print(key)
             for symbol in list(e.markets.keys()):
-                # if (counter >580):      #only used in development
-                #     break
+                if (counter >30):      #only used in development
+                    break
                 if (symbol not in self.unavailableTickers[key]):
                     if symbol in tickers:
                         counter += 1
@@ -164,16 +164,21 @@ class Arbitrager:
         bidsAvailable = copy.deepcopy(self.currentBooks[ticker][bidExch]['bids'])
         asksAvialable = copy.deepcopy(self.currentBooks[ticker][askExch]['asks'])
         profit = 0
+        tradeVol = 0
+        maxAskPrice = 0
         #orderbook (bidsavailable and asksavailable) is list of touples, 1st pram is price, 2nd param is volume
         #this is a simulation of buying/selling until no more arb opportunity, to calc profit
         while (bidsAvailable[0][0] > asksAvialable[0][0]):
+            if (asksAvialable[0][0] > maxAskPrice):
+                maxAskPrice = asksAvialable[0][0]
             volumeToTrade = min(bidsAvailable[0][1], asksAvialable[0][1])
+            tradeVol += volumeToTrade
             profit += volumeToTrade * (bidsAvailable[0][0]-asksAvialable[0][0])
             bidsAvailable[0][1] -= volumeToTrade
             asksAvialable[0][1] -= volumeToTrade
             bidsAvailable.pop(0) if bidsAvailable[0][1] == 0 else asksAvialable.pop(0)
             
-        return profit
+        return {'profit': profit, 'volume': tradeVol, 'maxAskPrice': maxAskPrice}
             
 
     def verifyOrderBook(self, ticker, exchHighBid, exchLowAsk):
@@ -185,13 +190,35 @@ class Arbitrager:
             return False
 
     def getTradingAndTransactionCosts(self, ticker, exch1, exch2):
-        pass
+        # try catch block, return -1 if could not get tx costs
+        return .1
 
-    def placeOrder(self, ticker, exch, amt):
+    def placeOrder(self, ticker, exch, amt, orderType, price):
+        self.exchanges[exch].apiKey = config.exchanges[exch]['API_KEY']
+        self.exchanges[exch].secret = config.exchanges[exch]['API_SECRET']
         # place order
-        pass
+        if (orderType == 'buy'):
+            try:
+                order = self.exchanges[exch].createLimitBuyOrder(ticker, amt, price)
+                print(f'----bought {amt} {ticker} at {exch}------')
+                return order
+            except:
+                print(f'----did not execute {orderType} order of {ticker} at {exch}----')
+
+        elif (orderType == 'sell'):
+            try:
+                order = self.exchanges[exch].createLimitSellOrder(ticker, amt, price)
+                print(f'----sold {amt} {ticker} at {exch}------')
+                return order
+            except:
+                print(f'----did not execute {orderType} order of {ticker} at {exch}----')
+        
 
     def verifyBalance(self, ticker, exch):
+        print(exch)
+        print(self.exchanges[exch])
+        self.exchanges[exch].apiKey = config.exchanges[exch]['API_KEY']
+        self.exchanges[exch].secret = config.exchanges[exch]['API_SECRET']
         try:
             balance = self.exchanges[exch].fetch_balance()
             coin = ticker.split('/')[1]
@@ -200,6 +227,7 @@ class Arbitrager:
             print('----- could not verify balance in {exch}')
 
     def tradeOnOpps(self, opp=None):
+        # can trade on passed in opportunities or on arb opportunities in class
         if (opp == None):
             if (len(self.ArbOpps2Way) > 0):
                 opp = self.ArbOpps2Way[0]
@@ -212,27 +240,22 @@ class Arbitrager:
         if (self.verifyOrderBook(opp['ticker'], bidExch, askExch) != False):
             # calc tx/trading costs
             txCosts = self.getTradingAndTransactionCosts(
-                opp['ticker'], bidExch, askExch)  # default this to .001 BTC
+                opp['ticker'], bidExch, askExch)  # default this to .1 BTC
             if (txCosts < 0):
                 print(f"------could not get tx costs for {opp['ticker']}")
                 return
             # calc max profit based on costs
-            maxProfitTradeAmt = 1000
-            maxProfitAskPrice = .00002
-
-            # sign into accounts
-            self.exchanges[askExch].apiKey = config[askExch]['API_KEY']
-            self.exchanges[askExch].secret = config[askExch]['API_SECRET']
-            self.exchanges[bidExch].apiKey = config[bidExch]['API_KEY']
-            self.exchanges[bidExch].secret = config[bidExch]['API_SECRET']
-
+            maxProfitTradeAmt = opp['maxProfit']['volume']
+            maxAskPrice = opp['maxProfit']['maxAskPrice']
+            
             # verify funds in account
             funds = self.verifyBalance(opp['ticker'], askExch)
-            if (funds > maxProfitTradeAmt/maxProfitAskPrice):
-                self.placeOrder(opp['ticker'], askExch, maxProfitTradeAmt)
+            if (funds > maxProfitTradeAmt/maxAskPrice):
+                self.placeOrder(opp['ticker'], askExch, maxProfitTradeAmt, 'buy', maxAskPrice)
                 # verify trade executed
                 # transfer funds
                 # sell on high bid exch
+                # self.placeOrder(opp['ticker'], bidExch, tradedAmt, 'sell')
 
         else:
             print('-----missed opportunity--------')
@@ -240,9 +263,13 @@ class Arbitrager:
             return
 
 
+
 arbitObj = Arbitrager()
-arbitObj.startArbitrage()
+# arbitObj.startArbitrage()
 # arbitObj.tradeOnOpps()
+print(arbitObj.verifyBalance('BAT/BTC','bittrex'))
+print(arbitObj.placeOrder('BAT/BTC','bittrex', 225, 'sell', .00002363))
+
 
 # Previous Opps:
 # BTM/BTC bittrex to livecoin
